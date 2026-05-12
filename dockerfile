@@ -1,22 +1,28 @@
 FROM php:8.2-fpm
 
-# Install system dependencies
+# Install system dependencies including PostgreSQL library
 RUN apt-get update && apt-get install -y \
     git \
     curl \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
+    libpq-dev \        # PostgreSQL C library
     zip \
     unzip \
     nginx \
-    supervisor
+    supervisor \
+    sqlite3 \
+    libsqlite3-dev
 
 # Clear cache
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install PHP extensions
-RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
+RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd pdo_sqlite
+
+# Install PostgreSQL extensions - THIS IS CRITICAL
+RUN docker-php-ext-install pdo_pgsql pgsql
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -27,33 +33,44 @@ WORKDIR /var/www/html
 # Copy application files
 COPY . .
 
+# Create .env file (without spaces)
+RUN if [ ! -f .env ]; then \
+    echo "APP_NAME=Franklin_Agent" > .env && \
+    echo "APP_ENV=production" >> .env && \
+    echo "APP_DEBUG=false" >> .env && \
+    echo "APP_URL=https://backend_ai-beaker.onrender.com" >> .env && \
+    echo "APP_KEY=" >> .env && \
+    echo "DB_CONNECTION=pgsql" >> .env && \
+    echo "SESSION_DRIVER=database" >> .env && \
+    echo "CACHE_DRIVER=database" >> .env; \
+    fi
+
 # Install dependencies
 RUN composer install --no-interaction --optimize-autoloader --no-dev
 
-# Set permissions
-RUN chown -R www-data:www-data /var/www/html/storage \
-    && chown -R www-data:www-data /var/www/html/bootstrap/cache \
-    && chmod -R 755 /var/www/html/storage \
-    && chmod -R 755 /var/www/html/bootstrap/cache
+# Fix storage permissions
+RUN mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache storage/logs \
+    && chmod -R 777 storage bootstrap/cache
 
-# Create storage/framework directories if missing
-RUN mkdir -p /var/www/html/storage/framework/sessions \
-    && mkdir -p /var/www/html/storage/framework/views \
-    && mkdir -p /var/www/html/storage/framework/cache \
-    && chown -R www-data:www-data /var/www/html/storage/framework
-
-# Laravel setup
+# Generate app key
 RUN php artisan key:generate || true
+
+# Cache configurations
 RUN php artisan config:cache || true
 RUN php artisan route:cache || true
 RUN php artisan view:cache || true
 
-# Copy nginx configuration
+# Run migrations (--force for production)
+RUN php artisan migrate --force || true
+
+# Nginx configuration
 RUN echo 'server { \
-    listen 80; \
+    listen 0.0.0.0:8080; \
     server_name _; \
     root /var/www/html/public; \
     index index.php; \
+    add_header X-Frame-Options "SAMEORIGIN"; \
+    add_header X-Content-Type-Options "nosniff"; \
     location / { \
         try_files $uri $uri/ /index.php?$query_string; \
     } \
@@ -62,11 +79,15 @@ RUN echo 'server { \
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; \
         include fastcgi_params; \
     } \
+    location ~ /\.(?!well-known).* { \
+        deny all; \
+    } \
 }' > /etc/nginx/sites-available/default
 
-# Copy supervisor config
+# Supervisor configuration
 RUN echo '[supervisord] \n\
 nodaemon=true \n\
+user=root \n\
 \n\
 [program:php-fpm] \n\
 command=php-fpm -F \n\
@@ -78,27 +99,6 @@ command=nginx -g "daemon off;" \n\
 autostart=true \n\
 autorestart=true' > /etc/supervisor/conf.d/laravel.conf
 
-# Fix storage permissions
-RUN mkdir -p /var/www/html/storage/framework/sessions \
-    && mkdir -p /var/www/html/storage/framework/views \
-    && mkdir -p /var/www/html/storage/framework/cache \
-    && mkdir -p /var/www/html/storage/logs \
-    && chmod -R 777 /var/www/html/storage \
-    && chmod -R 777 /var/www/html/bootstrap/cache
-
-    # Create .env file
-RUN if [ ! -f .env ]; then \
-    echo "APP_NAME=Franklin_Agent" > .env && \
-    echo "APP_ENV=production" >> .env && \
-    echo "APP_DEBUG=false" >> .env && \
-    echo "APP_KEY=" >> .env; \
-    fi
-
-    # Install dependencies
-RUN composer install --no-interaction --optimize-autoloader --no-dev
-
-
-
-EXPOSE 80
+EXPOSE 8080
 
 CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
