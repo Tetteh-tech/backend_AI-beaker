@@ -1,13 +1,13 @@
 FROM php:8.2-fpm
 
-# Install system dependencies including PostgreSQL library
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     git \
     curl \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
-    libpq-dev \        # PostgreSQL C library
+    libpq-dev \
     zip \
     unzip \
     nginx \
@@ -20,8 +20,6 @@ RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install PHP extensions
 RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd pdo_sqlite
-
-# Install PostgreSQL extensions - THIS IS CRITICAL
 RUN docker-php-ext-install pdo_pgsql pgsql
 
 # Install Composer
@@ -33,7 +31,7 @@ WORKDIR /var/www/html
 # Copy application files
 COPY . .
 
-# Create .env file (without spaces)
+# Create .env file
 RUN if [ ! -f .env ]; then \
     echo "APP_NAME=Franklin_Agent" > .env && \
     echo "APP_ENV=production" >> .env && \
@@ -48,9 +46,9 @@ RUN if [ ! -f .env ]; then \
 # Install dependencies
 RUN composer install --no-interaction --optimize-autoloader --no-dev
 
-# Fix storage permissions
-RUN mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache storage/logs \
-    && chmod -R 777 storage bootstrap/cache
+# Create storage directories
+RUN mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache storage/logs
+RUN chmod -R 777 storage bootstrap/cache
 
 # Generate app key
 RUN php artisan key:generate || true
@@ -60,7 +58,7 @@ RUN php artisan config:cache || true
 RUN php artisan route:cache || true
 RUN php artisan view:cache || true
 
-# Run migrations (--force for production)
+# Run migrations
 RUN php artisan migrate --force || true
 
 # Nginx configuration
