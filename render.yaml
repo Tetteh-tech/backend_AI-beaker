@@ -1,0 +1,28 @@
+# render.yaml - Configuration for Laravel Backend on Render
+
+services:
+  - type: web
+    name: backend_ai-beaker
+    runtime: image
+    repo: https://github.com/Tetteh-tech/backend_AI-beaker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: APP_NAME
+        value: Franklin Agent
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: APP_URL
+        value: https://backend_ai-beaker.onrender.com
+      - key: SESSION_DRIVER
+        value: database
+      - key: CACHE_DRIVER
+        value: database
+      - key: QUEUE_CONNECTION
+        value: sync
+      - key: LOG_CHANNEL
+        value: stack
+      - key: CLAWROUTER_TIMEOUT
+        value: "60"
