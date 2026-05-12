@@ -75,7 +75,7 @@ try {
             $franklinPerformance = 'crashed';
             $user->increment('successful_breaks');
             $user->addBadge('💥 Franklin Crasher');
-        } elseif ($responseTime > 5) {
+        } elseif ($responseTime > 90) {
             $scoreEarned = 100;
             $breakType = 'franklin_speed_break';
             $franklinPerformance = 'slow';
