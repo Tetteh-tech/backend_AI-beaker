@@ -78,6 +78,27 @@ command=nginx -g "daemon off;" \n\
 autostart=true \n\
 autorestart=true' > /etc/supervisor/conf.d/laravel.conf
 
+# Fix storage permissions
+RUN mkdir -p /var/www/html/storage/framework/sessions \
+    && mkdir -p /var/www/html/storage/framework/views \
+    && mkdir -p /var/www/html/storage/framework/cache \
+    && mkdir -p /var/www/html/storage/logs \
+    && chmod -R 777 /var/www/html/storage \
+    && chmod -R 777 /var/www/html/bootstrap/cache
+
+    # Create .env file
+RUN if [ ! -f .env ]; then \
+    echo "APP_NAME=Franklin Agent" > .env && \
+    echo "APP_ENV=production" >> .env && \
+    echo "APP_DEBUG=false" >> .env && \
+    echo "APP_KEY=" >> .env; \
+    fi
+
+    # Install dependencies
+RUN composer install --no-interaction --optimize-autoloader --no-dev
+
+
+
 EXPOSE 80
 
 CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
