@@ -43,14 +43,26 @@ class AIStressController extends Controller
         // Build messages with Franklin Agent identity
         $messages = $this->buildFranklinMessages($validated['prompt'], $session, $attackType);
         
-        // Send to Franklin Agent (ClawRouter)
-        $startTime = microtime(true);
-        $aiResponse = $this->franklin->chat($messages, [
-            'model' => $model,
-            'temperature' => $this->getTemperature($session->stress_level),
-        ]);
-        $responseTime = microtime(true) - $startTime;
-        
+try {
+    $startTime = microtime(true);
+
+    $aiResponse = $this->franklin->chat($messages, [
+        'model' => $model ?? 'gpt-4o-mini',
+        'temperature' => $this->getTemperature($session->stress_level),
+    ]);
+
+    $responseTime = microtime(true) - $startTime;
+
+} catch (\Exception $e) {
+    \Log::error('ClawRouter Exception', [
+        'message' => $e->getMessage()
+    ]);
+
+    return response()->json([
+        'success' => false,
+        'error' => 'ClawRouter crash: ' . $e->getMessage()
+    ], 500);
+}
         // Calculate score based on AI performance
         $scoreEarned = 0;
         $breakType = null;
@@ -193,6 +205,11 @@ class AIStressController extends Controller
                 'blockrun/eco' => 'blockrun/free',
             ];
             $selectedModel = $downgradeMap[$selectedModel] ?? $selectedModel;
+        }
+        
+        // Force safe fallback if model is empty
+        if (empty($selectedModel)) {
+            $selectedModel = 'blockrun/free';
         }
         
         return $selectedModel;
@@ -382,11 +399,10 @@ class AIStressController extends Controller
         ]);
     }
     
-    // ============ EXISTING METHODS (keep your original ones) ============
+    // ============ EXISTING METHODS ============
     
     public function getMetrics(Request $request)
     {
-        // Your existing getMetrics method
         return response()->json([
             'active_sessions' => AgentSession::where('status', 'active')->count(),
             'queue_length' => 0,
@@ -398,33 +414,33 @@ class AIStressController extends Controller
     }
     
     public function getLeaderboard(Request $request)
-{
-    $category = $request->get('category', 'overall');
-    
-    $query = User::query()
-        ->select('id', 'name', 'username', 'score', 'total_attacks', 'successful_breaks', 'badges')
-        ->where('score', '>', 0);
+    {
+        $category = $request->get('category', 'overall');
         
-    if ($category === 'success_rate') {
-        $query->orderByRaw('CASE WHEN total_attacks > 0 THEN (successful_breaks * 100.0 / total_attacks) ELSE 0 END DESC');
-    } else {
-        $query->orderBy('score', 'desc');
+        $query = User::query()
+            ->select('id', 'name', 'username', 'score', 'total_attacks', 'successful_breaks', 'badges')
+            ->where('score', '>', 0);
+            
+        if ($category === 'success_rate') {
+            $query->orderByRaw('CASE WHEN total_attacks > 0 THEN (successful_breaks * 100.0 / total_attacks) ELSE 0 END DESC');
+        } else {
+            $query->orderBy('score', 'desc');
+        }
+        
+        $leaderboard = $query->limit(100)->get();
+        
+        // Add rank
+        $rank = 1;
+        foreach ($leaderboard as $entry) {
+            $entry->rank = $rank++;
+        }
+        
+        return response()->json([
+            'category' => $category,
+            'leaderboard' => $leaderboard,
+            'total_users' => User::count()
+        ]);
     }
-    
-    $leaderboard = $query->limit(100)->get();
-    
-    // Add rank
-    $rank = 1;
-    foreach ($leaderboard as $entry) {
-        $entry->rank = $rank++;
-    }
-    
-    return response()->json([
-        'category' => $category,
-        'leaderboard' => $leaderboard,
-        'total_users' => User::count()
-    ]);
-}
     
     public function getUserStats(Request $request)
     {
@@ -459,7 +475,6 @@ class AIStressController extends Controller
             'iterations' => 'integer|min:1|max:100',
         ]);
         
-        // Your existing stress test logic
         return response()->json(['message' => 'Stress test completed']);
     }
     
@@ -474,105 +489,103 @@ class AIStressController extends Controller
         
         return response()->json($models);
     }
+    
     /**
- * Get analytics data for the dashboard
- */
-/**
- * Get analytics data for the dashboard
- */
-public function getAnalytics(Request $request)
-{
-    $range = $request->get('range', '24h');
-    
-    // Calculate date range
-    $startDate = match($range) {
-        '1h' => now()->subHour(),
-        '24h' => now()->subDay(),
-        '7d' => now()->subWeek(),
-        '30d' => now()->subDays(30),
-        default => now()->subDay(),
-    };
-    
-    // Get request trend data (PostgreSQL compatible)
-    $requestTrend = Prompt::where('created_at', '>=', $startDate)
-        ->selectRaw("TO_CHAR(created_at, 'YYYY-MM-DD HH24:00:00') as time, COUNT(*) as requests")
-        ->groupBy('time')
-        ->orderBy('time')
-        ->get()
-        ->map(fn($item) => [
-            'time' => $item->time,
-            'requests' => $item->requests
+     * Get analytics data for the dashboard
+     */
+    public function getAnalytics(Request $request)
+    {
+        $range = $request->get('range', '24h');
+        
+        // Calculate date range
+        $startDate = match($range) {
+            '1h' => now()->subHour(),
+            '24h' => now()->subDay(),
+            '7d' => now()->subWeek(),
+            '30d' => now()->subDays(30),
+            default => now()->subDay(),
+        };
+        
+        // Get request trend data (PostgreSQL compatible)
+        $requestTrend = Prompt::where('created_at', '>=', $startDate)
+            ->selectRaw("TO_CHAR(created_at, 'YYYY-MM-DD HH24:00:00') as time, COUNT(*) as requests")
+            ->groupBy('time')
+            ->orderBy('time')
+            ->get()
+            ->map(fn($item) => [
+                'time' => $item->time,
+                'requests' => $item->requests
+            ]);
+        
+        // Get attack type distribution
+        $attackDistribution = Prompt::where('created_at', '>=', $startDate)
+            ->selectRaw('type, COUNT(*) as value')
+            ->groupBy('type')
+            ->get()
+            ->map(fn($item) => [
+                'name' => ucfirst($item->type),
+                'value' => $item->value
+            ]);
+        
+        // Get agent performance
+        $agentPerformance = Prompt::where('created_at', '>=', $startDate)
+            ->selectRaw('COALESCE(agent_target, \'Franklin Agent\') as agent, AVG(response_time) as response_time, AVG(ai_confidence) as confidence')
+            ->groupBy('agent')
+            ->get()
+            ->map(fn($item) => [
+                'agent' => $item->agent,
+                'response_time' => round($item->response_time ?? 0, 2),
+                'confidence' => round(($item->confidence ?? 0) * 100, 1)
+            ]);
+        
+        // Get success rate trend (PostgreSQL compatible)
+        $successTrend = Prompt::where('created_at', '>=', $startDate)
+            ->selectRaw("TO_CHAR(created_at, 'YYYY-MM-DD') as date, 
+                         AVG(CASE WHEN caused_contradiction = true THEN 100 ELSE 0 END) as rate")
+            ->groupBy('date')
+            ->orderBy('date')
+            ->get()
+            ->map(fn($item) => [
+                'time' => $item->date,
+                'rate' => round($item->rate ?? 0, 1)
+            ]);
+        
+        // Get top attackers
+        $topAttackers = User::whereHas('prompts', function($q) use ($startDate) {
+                $q->where('created_at', '>=', $startDate);
+            })
+            ->withCount(['prompts as attack_count' => function($q) use ($startDate) {
+                $q->where('created_at', '>=', $startDate);
+            }])
+            ->orderBy('attack_count', 'desc')
+            ->take(10)
+            ->get()
+            ->map(fn($user) => [
+                'username' => $user->username,
+                'attack_count' => $user->attack_count,
+                'success_rate' => $user->total_attacks > 0 
+                    ? round(($user->successful_breaks / $user->total_attacks) * 100, 1)
+                    : 0
+            ]);
+        
+        return response()->json([
+            'total_requests' => Prompt::where('created_at', '>=', $startDate)->count(),
+            'success_rate' => round(
+                Prompt::where('created_at', '>=', $startDate)
+                    ->where('caused_contradiction', true)
+                    ->count() / max(Prompt::where('created_at', '>=', $startDate)->count(), 1) * 100, 
+                1
+            ),
+            'avg_response_time' => round(Prompt::where('created_at', '>=', $startDate)
+                ->avg('response_time') ?? 0, 2),
+            'active_users' => User::whereHas('prompts', function($q) use ($startDate) {
+                $q->where('created_at', '>=', $startDate);
+            })->distinct()->count(),
+            'request_trend' => $requestTrend,
+            'attack_distribution' => $attackDistribution,
+            'agent_performance' => $agentPerformance,
+            'success_trend' => $successTrend,
+            'top_attackers' => $topAttackers
         ]);
-    
-    // Get attack type distribution
-    $attackDistribution = Prompt::where('created_at', '>=', $startDate)
-        ->selectRaw('type, COUNT(*) as value')
-        ->groupBy('type')
-        ->get()
-        ->map(fn($item) => [
-            'name' => ucfirst($item->type),
-            'value' => $item->value
-        ]);
-    
-    // Get agent performance
-    $agentPerformance = Prompt::where('created_at', '>=', $startDate)
-        ->selectRaw('COALESCE(agent_target, \'Franklin Agent\') as agent, AVG(response_time) as response_time, AVG(ai_confidence) as confidence')
-        ->groupBy('agent')
-        ->get()
-        ->map(fn($item) => [
-            'agent' => $item->agent,
-            'response_time' => round($item->response_time ?? 0, 2),
-            'confidence' => round(($item->confidence ?? 0) * 100, 1)
-        ]);
-    
-    // Get success rate trend (PostgreSQL compatible)
-    $successTrend = Prompt::where('created_at', '>=', $startDate)
-        ->selectRaw("TO_CHAR(created_at, 'YYYY-MM-DD') as date, 
-                     AVG(CASE WHEN caused_contradiction = true THEN 100 ELSE 0 END) as rate")
-        ->groupBy('date')
-        ->orderBy('date')
-        ->get()
-        ->map(fn($item) => [
-            'time' => $item->date,
-            'rate' => round($item->rate ?? 0, 1)
-        ]);
-    
-    // Get top attackers
-    $topAttackers = User::whereHas('prompts', function($q) use ($startDate) {
-            $q->where('created_at', '>=', $startDate);
-        })
-        ->withCount(['prompts as attack_count' => function($q) use ($startDate) {
-            $q->where('created_at', '>=', $startDate);
-        }])
-        ->orderBy('attack_count', 'desc')
-        ->take(10)
-        ->get()
-        ->map(fn($user) => [
-            'username' => $user->username,
-            'attack_count' => $user->attack_count,
-            'success_rate' => $user->total_attacks > 0 
-                ? round(($user->successful_breaks / $user->total_attacks) * 100, 1)
-                : 0
-        ]);
-    
-    return response()->json([
-        'total_requests' => Prompt::where('created_at', '>=', $startDate)->count(),
-        'success_rate' => round(
-            Prompt::where('created_at', '>=', $startDate)
-                ->where('caused_contradiction', true)
-                ->count() / max(Prompt::where('created_at', '>=', $startDate)->count(), 1) * 100, 
-            1
-        ),
-        'avg_response_time' => round(Prompt::where('created_at', '>=', $startDate)
-            ->avg('response_time') ?? 0, 2),
-        'active_users' => User::whereHas('prompts', function($q) use ($startDate) {
-            $q->where('created_at', '>=', $startDate);
-        })->distinct()->count(),
-        'request_trend' => $requestTrend,
-        'attack_distribution' => $attackDistribution,
-        'agent_performance' => $agentPerformance,
-        'success_trend' => $successTrend,
-        'top_attackers' => $topAttackers
-    ]);
-}
+    }
 }
