@@ -36,7 +36,7 @@ RUN if [ ! -f .env ]; then \
     echo "APP_NAME=Franklin_Agent" > .env && \
     echo "APP_ENV=production" >> .env && \
     echo "APP_DEBUG=false" >> .env && \
-    echo "APP_URL=https://backend_ai-beaker.onrender.com" >> .env && \
+    echo "APP_URL=https://backend-ai-beaker.onrender.com" >> .env && \
     echo "APP_KEY=" >> .env && \
     echo "DB_CONNECTION=pgsql" >> .env && \
     echo "SESSION_DRIVER=database" >> .env && \
@@ -46,6 +46,10 @@ RUN if [ ! -f .env ]; then \
 # Install dependencies
 RUN composer install --no-interaction --optimize-autoloader --no-dev
 
+# FORCE DEBUG MODE - ADD THESE LINES
+RUN echo "APP_DEBUG=true" >> .env && \
+    echo "APP_ENV=local" >> .env
+    
 # Create storage directories
 RUN mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache storage/logs
 RUN chmod -R 777 storage bootstrap/cache
