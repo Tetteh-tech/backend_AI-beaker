@@ -398,16 +398,33 @@ class AIStressController extends Controller
     }
     
     public function getLeaderboard(Request $request)
-    {
-        $users = User::orderBy('score', 'desc')
-            ->take(100)
-            ->get(['id', 'name', 'username', 'score', 'total_attacks', 'successful_breaks', 'badges']);
+{
+    $category = $request->get('category', 'overall');
+    
+    $query = User::query()
+        ->select('id', 'name', 'username', 'score', 'total_attacks', 'successful_breaks', 'badges')
+        ->where('score', '>', 0);
         
-        return response()->json([
-            'leaderboard' => $users,
-            'total_users' => User::count()
-        ]);
+    if ($category === 'success_rate') {
+        $query->orderByRaw('CASE WHEN total_attacks > 0 THEN (successful_breaks * 100.0 / total_attacks) ELSE 0 END DESC');
+    } else {
+        $query->orderBy('score', 'desc');
     }
+    
+    $leaderboard = $query->limit(100)->get();
+    
+    // Add rank
+    $rank = 1;
+    foreach ($leaderboard as $entry) {
+        $entry->rank = $rank++;
+    }
+    
+    return response()->json([
+        'category' => $category,
+        'leaderboard' => $leaderboard,
+        'total_users' => User::count()
+    ]);
+}
     
     public function getUserStats(Request $request)
     {
