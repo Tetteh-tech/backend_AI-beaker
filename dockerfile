@@ -31,15 +31,22 @@ COPY . .
 RUN composer install --no-interaction --optimize-autoloader --no-dev
 
 # Set permissions
-RUN chown -R www-data:www-data /var/www/html/storage
-RUN chown -R www-data:www-data /var/www/html/bootstrap/cache
-RUN chmod -R 755 /var/www/html/storage
-RUN chmod -R 755 /var/www/html/bootstrap/cache
+RUN chown -R www-data:www-data /var/www/html/storage \
+    && chown -R www-data:www-data /var/www/html/bootstrap/cache \
+    && chmod -R 755 /var/www/html/storage \
+    && chmod -R 755 /var/www/html/bootstrap/cache
+
+# Create storage/framework directories if missing
+RUN mkdir -p /var/www/html/storage/framework/sessions \
+    && mkdir -p /var/www/html/storage/framework/views \
+    && mkdir -p /var/www/html/storage/framework/cache \
+    && chown -R www-data:www-data /var/www/html/storage/framework
 
 # Laravel setup
 RUN php artisan key:generate || true
 RUN php artisan config:cache || true
 RUN php artisan route:cache || true
+RUN php artisan view:cache || true
 
 # Copy nginx configuration
 RUN echo 'server { \
@@ -51,7 +58,7 @@ RUN echo 'server { \
         try_files $uri $uri/ /index.php?$query_string; \
     } \
     location ~ \.php$ { \
-        fastcgi_pass unix:/var/run/php/php8.2-fpm.sock; \
+        fastcgi_pass 127.0.0.1:9000; \
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; \
         include fastcgi_params; \
     } \
