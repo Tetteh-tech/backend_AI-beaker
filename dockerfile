@@ -36,7 +36,6 @@ RUN php artisan config:clear || true
 RUN php artisan cache:clear || true
 RUN php artisan route:clear || true
 RUN php artisan view:clear || true
-
 # ===== AUTO FIX ENTRYPOINT (RUNS MIGRATIONS ON START) =====
 RUN echo '#!/bin/sh' > /start.sh && \
     echo 'echo "Starting Laravel setup..."' >> /start.sh && \
