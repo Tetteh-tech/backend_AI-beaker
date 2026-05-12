@@ -460,6 +460,9 @@ class AIStressController extends Controller
     /**
  * Get analytics data for the dashboard
  */
+/**
+ * Get analytics data for the dashboard
+ */
 public function getAnalytics(Request $request)
 {
     $range = $request->get('range', '24h');
@@ -473,9 +476,9 @@ public function getAnalytics(Request $request)
         default => now()->subDay(),
     };
     
-    // Get request trend data
+    // Get request trend data (PostgreSQL compatible)
     $requestTrend = Prompt::where('created_at', '>=', $startDate)
-        ->selectRaw('DATE_FORMAT(created_at, "%Y-%m-%d %H:00:00") as time, COUNT(*) as requests')
+        ->selectRaw("TO_CHAR(created_at, 'YYYY-MM-DD HH24:00:00') as time, COUNT(*) as requests")
         ->groupBy('time')
         ->orderBy('time')
         ->get()
@@ -496,7 +499,7 @@ public function getAnalytics(Request $request)
     
     // Get agent performance
     $agentPerformance = Prompt::where('created_at', '>=', $startDate)
-        ->selectRaw('COALESCE(agent_target, "Franklin Agent") as agent, AVG(response_time) as response_time, AVG(ai_confidence) as confidence')
+        ->selectRaw('COALESCE(agent_target, \'Franklin Agent\') as agent, AVG(response_time) as response_time, AVG(ai_confidence) as confidence')
         ->groupBy('agent')
         ->get()
         ->map(fn($item) => [
@@ -505,10 +508,10 @@ public function getAnalytics(Request $request)
             'confidence' => round(($item->confidence ?? 0) * 100, 1)
         ]);
     
-    // Get success rate trend
+    // Get success rate trend (PostgreSQL compatible)
     $successTrend = Prompt::where('created_at', '>=', $startDate)
-        ->selectRaw('DATE_FORMAT(created_at, "%Y-%m-%d") as date, 
-                     AVG(CASE WHEN caused_contradiction = 1 THEN 100 ELSE 0 END) as rate')
+        ->selectRaw("TO_CHAR(created_at, 'YYYY-MM-DD') as date, 
+                     AVG(CASE WHEN caused_contradiction = true THEN 100 ELSE 0 END) as rate")
         ->groupBy('date')
         ->orderBy('date')
         ->get()
@@ -517,7 +520,7 @@ public function getAnalytics(Request $request)
             'rate' => round($item->rate ?? 0, 1)
         ]);
     
-    // Get top attackers - FIXED: removed the problematic sum query
+    // Get top attackers
     $topAttackers = User::whereHas('prompts', function($q) use ($startDate) {
             $q->where('created_at', '>=', $startDate);
         })
