@@ -20,7 +20,7 @@ class ClawRouterService
     public function __construct()
     {
         $this->baseUrl = env('CLAWROUTER_URL', 'http://127.0.0.1:8402');
-        $this->timeout = env('CLAWROUTER_TIMEOUT', 60);
+        $this->timeout = env('CLAWROUTER_TIMEOUT', 120);
     }
     
     /**
