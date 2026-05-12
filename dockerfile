@@ -46,10 +46,14 @@ RUN if [ ! -f .env ]; then \
 # Install dependencies
 RUN composer install --no-interaction --optimize-autoloader --no-dev
 
+# After composer install, add these two lines:
+RUN chmod -R 775 storage bootstrap/cache
+RUN php artisan config:cache
+
 # FORCE DEBUG MODE - ADD THESE LINES
 RUN echo "APP_DEBUG=true" >> .env && \
     echo "APP_ENV=local" >> .env
-    
+
 # Create storage directories
 RUN mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache storage/logs
 RUN chmod -R 777 storage bootstrap/cache
