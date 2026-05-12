@@ -2,109 +2,72 @@ FROM php:8.2-fpm
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
-    libpq-dev \
-    zip \
-    unzip \
-    nginx \
-    supervisor \
-    sqlite3 \
-    libsqlite3-dev
+    git curl zip unzip \
+    libpng-dev libonig-dev libxml2-dev \
+    libpq-dev nginx supervisor \
+    sqlite3 libsqlite3-dev
 
-# Clear cache
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install PHP extensions
-RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd pdo_sqlite
-RUN docker-php-ext-install pdo_pgsql pgsql
+# PHP extensions
+RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd pdo_sqlite pdo_pgsql pgsql
 
-# Install Composer
+# Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Set working directory
 WORKDIR /var/www/html
 
-# Copy application files
 COPY . .
-
-# Create .env file
-RUN if [ ! -f .env ]; then \
-    echo "APP_NAME=Franklin_Agent" > .env && \
-    echo "APP_ENV=production" >> .env && \
-    echo "APP_DEBUG=false" >> .env && \
-    echo "APP_URL=https://backend-ai-beaker.onrender.com" >> .env && \
-    echo "APP_KEY=" >> .env && \
-    echo "DB_CONNECTION=pgsql" >> .env && \
-    echo "SESSION_DRIVER=database" >> .env && \
-    echo "CACHE_DRIVER=database" >> .env; \
-    fi
 
 # Install dependencies
 RUN composer install --no-interaction --optimize-autoloader --no-dev
 
-# After composer install, add these two lines:
+# Storage permissions (IMPORTANT FIX)
+RUN mkdir -p storage/framework/sessions \
+    storage/framework/views \
+    storage/framework/cache \
+    storage/logs
+
+RUN chown -R www-data:www-data storage bootstrap/cache
 RUN chmod -R 775 storage bootstrap/cache
-RUN php artisan config:cache
 
-# FORCE DEBUG MODE - ADD THESE LINES
-RUN echo "APP_DEBUG=true" >> .env && \
-    echo "APP_ENV=local" >> .env
+# Clear cached config (prevents broken boot)
+RUN php artisan config:clear || true
+RUN php artisan cache:clear || true
+RUN php artisan route:clear || true
+RUN php artisan view:clear || true
 
-# Create storage directories
-RUN mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache storage/logs
-RUN chmod -R 777 storage bootstrap/cache
+# ===== AUTO FIX ENTRYPOINT (RUNS MIGRATIONS ON START) =====
+RUN echo '#!/bin/sh' > /start.sh && \
+    echo 'echo "Starting Laravel setup..."' >> /start.sh && \
+    echo 'php artisan config:clear' >> /start.sh && \
+    echo 'php artisan migrate --force || true' >> /start.sh && \
+    echo 'php-fpm -D' >> /start.sh && \
+    echo 'nginx -g "daemon off;"' >> /start.sh && \
+    chmod +x /start.sh
 
-# Generate app key
-RUN php artisan key:generate || true
-
-# Cache configurations
-RUN php artisan config:cache || true
-RUN php artisan route:cache || true
-RUN php artisan view:cache || true
-
-# Run migrations
-RUN php artisan migrate --force || true
-
-# Nginx configuration
+# Nginx config
 RUN echo 'server { \
     listen 0.0.0.0:8080; \
     server_name _; \
     root /var/www/html/public; \
     index index.php; \
-    add_header X-Frame-Options "SAMEORIGIN"; \
-    add_header X-Content-Type-Options "nosniff"; \
+\
     location / { \
         try_files $uri $uri/ /index.php?$query_string; \
     } \
+\
     location ~ \.php$ { \
+        include fastcgi_params; \
         fastcgi_pass 127.0.0.1:9000; \
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; \
-        include fastcgi_params; \
     } \
+\
     location ~ /\.(?!well-known).* { \
         deny all; \
     } \
 }' > /etc/nginx/sites-available/default
 
-# Supervisor configuration
-RUN echo '[supervisord] \n\
-nodaemon=true \n\
-user=root \n\
-\n\
-[program:php-fpm] \n\
-command=php-fpm -F \n\
-autostart=true \n\
-autorestart=true \n\
-\n\
-[program:nginx] \n\
-command=nginx -g "daemon off;" \n\
-autostart=true \n\
-autorestart=true' > /etc/supervisor/conf.d/laravel.conf
-
 EXPOSE 8080
 
-CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
+CMD ["/start.sh"]
