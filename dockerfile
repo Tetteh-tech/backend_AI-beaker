@@ -88,7 +88,7 @@ RUN mkdir -p /var/www/html/storage/framework/sessions \
 
     # Create .env file
 RUN if [ ! -f .env ]; then \
-    echo "APP_NAME=Franklin Agent" > .env && \
+    echo "APP_NAME=Franklin_Agent" > .env && \
     echo "APP_ENV=production" >> .env && \
     echo "APP_DEBUG=false" >> .env && \
     echo "APP_KEY=" >> .env; \
